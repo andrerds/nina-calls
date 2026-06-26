@@ -30,9 +30,14 @@ func (m *CallManager) FeedCapturedPCM(data []float32) {
 		return
 	}
 	m.captureBuf = append(m.captureBuf, data...)
-	if maxBuffered := m.codec.FrameSize() * 4; len(m.captureBuf) > maxBuffered {
+	// Buffer up to 30 seconds of audio (500 frames × 60ms) for headless TTS injection.
+	const maxFrames = 500
+	if maxBuffered := m.codec.FrameSize() * maxFrames; len(m.captureBuf) > maxBuffered {
+		truncated := len(m.captureBuf) - maxBuffered
 		m.captureBuf = m.captureBuf[len(m.captureBuf)-maxBuffered:]
+		m.log.Warn("capture buffer overflow: truncated oldest samples", "dropped_samples", truncated)
 	}
+	m.log.Info("captured PCM buffered", "new_samples", len(data), "total_buffered", len(m.captureBuf), "duration_ms", len(m.captureBuf)*60/m.codec.FrameSize())
 }
 
 func (m *CallManager) sendOpusFrameLocked(opus []byte) {
