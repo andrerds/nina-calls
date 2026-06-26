@@ -22,7 +22,11 @@ func (m *CallManager) initCodec() {
 func (m *CallManager) FeedCapturedPCM(data []float32) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.codec == nil || len(data) == 0 {
+	if m.codec == nil {
+		m.log.Warn("FeedCapturedPCM dropped: codec is nil")
+		return
+	}
+	if len(data) == 0 {
 		return
 	}
 	m.captureBuf = append(m.captureBuf, data...)
@@ -32,7 +36,12 @@ func (m *CallManager) FeedCapturedPCM(data []float32) {
 }
 
 func (m *CallManager) sendOpusFrameLocked(opus []byte) {
-	if m.rtpSession == nil || m.srtpSession == nil {
+	if m.rtpSession == nil {
+		m.log.Warn("sendOpusFrame dropped: rtpSession is nil")
+		return
+	}
+	if m.srtpSession == nil {
+		m.log.Warn("sendOpusFrame dropped: srtpSession is nil")
 		return
 	}
 	marker := !m.firstPacketSent
@@ -82,6 +91,11 @@ func (m *CallManager) startMediaSendLoopLocked() {
 			}
 			if opus, err := m.codec.Encode(frame); err == nil {
 				m.sendOpusFrameLocked(opus)
+				if !silentFrame(frame) {
+					m.log.Debug("audio frame sent", "bytes", len(opus))
+				}
+			} else {
+				m.log.Warn("codec encode error", "err", err)
 			}
 			m.mu.Unlock()
 		}
@@ -171,4 +185,13 @@ func (m *CallManager) alignPeerAudio(ts uint32, pcm []float32) []float32 {
 	}
 	m.audioPlayedSamples = target + origLen
 	return pcm
+}
+
+func silentFrame(frame []float32) bool {
+	for _, s := range frame {
+		if s != 0 {
+			return false
+		}
+	}
+	return true
 }

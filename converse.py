@@ -22,12 +22,19 @@ def pcm_to_wav_bytes(pcm_data: bytes, rate: int = 16000) -> bytes:
     return buf.getvalue()
 
 def transcribe(pcm_data: bytes) -> str:
-    """Send PCM to Whisper for transcription."""
+    """Send PCM to Whisper for transcription using multipart/form-data."""
     wav = pcm_to_wav_bytes(pcm_data)
+    boundary = "----NinaCallsWhisper"
+    body = b"--" + boundary.encode() + b"\r\n"
+    body += b'Content-Disposition: form-data; name="file"; filename="audio.wav"\r\n'
+    body += b"Content-Type: audio/wav\r\n\r\n"
+    body += wav
+    body += b"\r\n--" + boundary.encode() + b"--\r\n"
+    
     req = urllib.request.Request(
         f"{WHISPER_HOST}/transcribe",
-        data=wav,
-        headers={"Content-Type": "audio/wav"}
+        data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}
     )
     try:
         resp = urllib.request.urlopen(req, timeout=10)

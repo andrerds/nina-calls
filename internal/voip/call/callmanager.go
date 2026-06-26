@@ -52,6 +52,31 @@ type CallManager struct {
 	OnPeerVideo   func([]byte)
 }
 
+// DebugState returns internal state for diagnostics.
+func (m *CallManager) DebugState() map[string]any {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	callID := ""
+	state := ""
+	if m.currentCall != nil {
+		callID = m.currentCall.CallID
+		state = string(m.currentCall.StateData.State)
+	}
+	return map[string]any{
+		"call_id":       callID,
+		"state":         state,
+		"rtp_session":   m.rtpSession != nil,
+		"srtp_session":  m.srtpSession != nil,
+		"codec":         m.codec != nil,
+		"relay_has_conn": m.relay.HasConnection(),
+		"relay_connected_count": m.relay.ConnectedCount(),
+		"self_ssrc":     m.selfSsrc,
+		"peer_ssrcs":    len(m.peerSsrcs),
+		"capture_buf":   len(m.captureBuf),
+		"first_packet_sent": m.firstPacketSent,
+	}
+}
+
 func NewCallManager(sock core.VoipSocket, log *slog.Logger) *CallManager {
 	if log == nil {
 		log = slog.Default()

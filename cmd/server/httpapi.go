@@ -29,6 +29,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("DELETE /api/sessions/{sid}/calls/{id}", s.handleEndCall)
 	mux.HandleFunc("POST /api/sessions/{sid}/calls/{id}/pcm", s.handlePCM)
 	mux.HandleFunc("GET /api/sessions/{sid}/calls/{id}/pcm", s.handlePeerPCM)
+	mux.HandleFunc("GET /api/sessions/{sid}/calls/{id}/debug", s.handleCallDebug)
 	mux.HandleFunc("GET /api/sessions/{sid}/history", s.handleHistory)
 
 	mux.HandleFunc("GET /api/events", s.handleEvents)
@@ -323,6 +324,21 @@ func (s *server) handlePeerPCM(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+// handleCallDebug dumps internal CallManager state for diagnostics.
+func (s *server) handleCallDebug(w http.ResponseWriter, r *http.Request) {
+	sess := s.sessionByID(w, r.PathValue("sid"))
+	if sess == nil {
+		return
+	}
+	callID := r.PathValue("id")
+	ac, ok := sess.reg.get(callID)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such call"})
+		return
+	}
+	writeJSON(w, http.StatusOK, ac.cm.DebugState())
 }
 
 func normalizePhone(p string) string {
