@@ -211,7 +211,7 @@ func (s *Session) startPairing(ctx context.Context) error {
 		for evt := range qrChan {
 			switch evt.Event {
 			case "code":
-				s.log.Info("scan the QR code to pair this session")
+				s.log.Info("scan the QR code to pair this session", "qr_code", evt.Code)
 				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
 				s.setAuth(AuthSnapshot{State: "qr", QR: evt.Code})
 				s.mgr.broker.emitSessionQR(s.id, evt.Code)
