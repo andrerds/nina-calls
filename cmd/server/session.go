@@ -50,7 +50,7 @@ func newSession(mgr *SessionManager, id, name string, client *whatsmeow.Client) 
 func (s *Session) createCall(callID string) *call.CallManager {
 	cm := call.NewCallManager(wa.NewSocket(s.client), s.log)
 	s.wireCall(cm, callID)
-	s.reg.add(callID, &activeCall{cm: cm})
+	s.reg.add(callID, newActiveCall(cm))
 	return cm
 }
 
@@ -89,17 +89,29 @@ func (s *Session) wireCall(cm *call.CallManager, callID string) {
 	}
 	cm.OnPeerAudio = func(pcm16 []float32) {
 		ac, ok := s.reg.get(callID)
-		if !ok || ac.bridge == nil {
+		if !ok {
 			return
 		}
-		_ = ac.bridge.WritePCM(pcm16)
+		if ac.bridge != nil {
+			_ = ac.bridge.WritePCM(pcm16)
+			return
+		}
+		// Headless mode: buffer peer audio for polling
+		select {
+		case ac.peerAudio <- pcm16:
+		default:
+			// drop if buffer full (headless consumer too slow)
+		}
 	}
 	cm.OnPeerVideo = func(au []byte) {
 		ac, ok := s.reg.get(callID)
-		if !ok || ac.bridge == nil {
+		if !ok {
 			return
 		}
-		_ = ac.bridge.WriteVideo(au)
+		if ac.bridge != nil {
+			_ = ac.bridge.WriteVideo(au)
+		}
+		// Headless: video ignored (no channel buffer needed for now)
 	}
 }
 

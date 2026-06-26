@@ -2,12 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"wacalls/internal/voip/core"
+	"wacalls/internal/voip/media"
 
 	"go.mau.fi/whatsmeow/types"
 )
@@ -25,6 +27,8 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{sid}/calls/{id}/accept", s.handleAccept)
 	mux.HandleFunc("POST /api/sessions/{sid}/calls/{id}/reject", s.handleReject)
 	mux.HandleFunc("DELETE /api/sessions/{sid}/calls/{id}", s.handleEndCall)
+	mux.HandleFunc("POST /api/sessions/{sid}/calls/{id}/pcm", s.handlePCM)
+	mux.HandleFunc("GET /api/sessions/{sid}/calls/{id}/pcm", s.handlePeerPCM)
 	mux.HandleFunc("GET /api/sessions/{sid}/history", s.handleHistory)
 
 	mux.HandleFunc("GET /api/events", s.handleEvents)
@@ -270,6 +274,55 @@ func (s *server) doEndCall(sess *Session, w http.ResponseWriter, r *http.Request
 	sess.removeCall(id)
 	s.broker.endCall(id, string(core.EndCallReasonUserEnded))
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handlePCM injects raw 16kHz mono int16 PCM audio into a call (headless mode).
+// Body is raw binary: int16 little-endian samples at 16kHz.
+// No WebRTC/browser required — the audio goes straight to the WhatsApp call.
+func (s *server) handlePCM(w http.ResponseWriter, r *http.Request) {
+	sess := s.sessionByID(w, r.PathValue("sid"))
+	if sess == nil {
+		return
+	}
+	callID := r.PathValue("id")
+	ac, ok := sess.reg.get(callID)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such call"})
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil || len(body) < 2 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "empty or invalid PCM body"})
+		return
+	}
+	pcm := media.PCMInt16LEToFloat32(body)
+	ac.cm.FeedCapturedPCM(pcm)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handlePeerPCM returns buffered peer audio in headless mode.
+// Returns raw int16 LE PCM audio at 16kHz mono, or 204 if no audio available yet.
+// Query param `?timeout_ms=500` to long-poll (default 100ms).
+func (s *server) handlePeerPCM(w http.ResponseWriter, r *http.Request) {
+	sess := s.sessionByID(w, r.PathValue("sid"))
+	if sess == nil {
+		return
+	}
+	callID := r.PathValue("id")
+	ac, ok := sess.reg.get(callID)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such call"})
+		return
+	}
+	select {
+	case pcm := <-ac.peerAudio:
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Write(media.PCMFloat32ToInt16LE(pcm))
+	case <-r.Context().Done():
+		return
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 func normalizePhone(p string) string {

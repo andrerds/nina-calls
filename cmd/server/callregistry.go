@@ -7,8 +7,16 @@ import (
 )
 
 type activeCall struct {
-	cm     *call.CallManager
-	bridge *Bridge
+	cm        *call.CallManager
+	bridge    *Bridge
+	peerAudio chan []float32 // headless: buffered peer audio (16kHz mono float32)
+}
+
+func newActiveCall(cm *call.CallManager) *activeCall {
+	return &activeCall{
+		cm:        cm,
+		peerAudio: make(chan []float32, 256), // ~4s buffer at 16kHz / 250 samples per chunk
+	}
 }
 
 type callRegistry struct {
